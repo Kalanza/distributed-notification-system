@@ -5,22 +5,139 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
-
-  postgres:
-    image: postgres:15
-    container_name: postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: notifications
-    ports:
-      - "5432:5432"
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
 
   redis:
-    image: redis:7
+    image: redis:alpine
     container_name: redis
     ports:
       - "6379:6379"
+
+  postgres_user:
+    image: postgres:15
+    container_name: postgres_user
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata_user:/var/lib/postgresql/data
+
+  postgres_template:
+    image: postgres:15
+    container_name: postgres_template
+    environment:
+      POSTGRES_DB: template_db
+      POSTGRES_USER: template
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata_template:/var/lib/postgresql/data
+
+  postgres_email:
+    image: postgres:15
+    container_name: postgres_email
+    environment:
+      POSTGRES_DB: email_db
+      POSTGRES_USER: email
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata_email:/var/lib/postgresql/data
+
+  postgres_push:
+    image: postgres:15
+    container_name: postgres_push
+    environment:
+      POSTGRES_DB: push_db
+      POSTGRES_USER: push
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5436:5432"
+    volumes:
+      - pgdata_push:/var/lib/postgresql/data
+
+  api_gateway:
+    build: ./api_gateway
+    container_name: api_gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - rabbitmq
+      - redis
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - REDIS_HOST=redis
+
+  email_service:
+    build: ./email_service
+    container_name: email_service
+    ports:
+      - "8001:8000"
+    depends_on:
+      - rabbitmq
+      - redis
+      - postgres_email
+    environment:
+      - DB_HOST=postgres_email
+      - DB_NAME=email_db
+      - DB_USER=email
+      - DB_PASS=password
+
+  push_service:
+    build: ./push_service
+    container_name: push_service
+    ports:
+      - "8002:8000"
+    depends_on:
+      - rabbitmq
+      - redis
+      - postgres_push
+    environment:
+      - DB_HOST=postgres_push
+      - DB_NAME=push_db
+      - DB_USER=push
+      - DB_PASS=password
+
+  user_service:
+    build: ./user_service
+    container_name: user_service
+    ports:
+      - "8003:8000"
+    depends_on:
+      - postgres_user
+      - redis
+    environment:
+      - DB_HOST=postgres_user
+      - DB_NAME=user_db
+      - DB_USER=user
+      - DB_PASS=password
+
+  template_service:
+    build: ./template_service
+    container_name: template_service
+    ports:
+      - "8004:8000"
+    depends_on:
+      - postgres_template
+      - redis
+    environment:
+      - DB_HOST=postgres_template
+      - DB_NAME=template_db
+      - DB_USER=template
+      - DB_PASS=password
+
+volumes:
+  pgdata_user:
+  pgdata_template:
+  pgdata_email:
+  pgdata_push:
 
 networks:
   default:
