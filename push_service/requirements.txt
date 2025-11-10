@@ -1,4 +1,6 @@
-﻿fastapi
+fastapi
 uvicorn[standard]
 pydantic
 requests
+pika
+firebase-admin

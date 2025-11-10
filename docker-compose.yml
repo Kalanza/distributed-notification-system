@@ -64,7 +64,9 @@ services:
       - pgdata_push:/var/lib/postgresql/data
 
   api_gateway:
-    build: ./api_gateway
+    build:
+      context: .
+      dockerfile: ./api_gateway/Dockerfile
     container_name: api_gateway
     ports:
       - "8000:8000"
@@ -74,9 +76,12 @@ services:
     environment:
       - RABBITMQ_HOST=rabbitmq
       - REDIS_HOST=redis
+      - PYTHONPATH=/app
 
   email_service:
-    build: ./email_service
+    build:
+      context: .
+      dockerfile: ./email_service/Dockerfile
     container_name: email_service
     ports:
       - "8001:8000"
@@ -89,9 +94,12 @@ services:
       - DB_NAME=email_db
       - DB_USER=email
       - DB_PASS=password
+      - PYTHONPATH=/app
 
   push_service:
-    build: ./push_service
+    build:
+      context: .
+      dockerfile: ./push_service/Dockerfile
     container_name: push_service
     ports:
       - "8002:8000"
@@ -104,9 +112,12 @@ services:
       - DB_NAME=push_db
       - DB_USER=push
       - DB_PASS=password
+      - PYTHONPATH=/app
 
   user_service:
-    build: ./user_service
+    build:
+      context: .
+      dockerfile: ./user_service/Dockerfile
     container_name: user_service
     ports:
       - "8003:8000"
@@ -118,9 +129,12 @@ services:
       - DB_NAME=user_db
       - DB_USER=user
       - DB_PASS=password
+      - PYTHONPATH=/app
 
   template_service:
-    build: ./template_service
+    build:
+      context: .
+      dockerfile: ./template_service/Dockerfile
     container_name: template_service
     ports:
       - "8004:8000"
@@ -132,6 +146,7 @@ services:
       - DB_NAME=template_db
       - DB_USER=template
       - DB_PASS=password
+      - PYTHONPATH=/app
 
 volumes:
   pgdata_user:

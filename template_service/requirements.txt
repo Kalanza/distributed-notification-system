@@ -2,3 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 requests
+sqlalchemy
+psycopg2-binary
+alembic
+redis

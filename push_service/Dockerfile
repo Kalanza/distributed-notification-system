@@ -1,7 +1,14 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY . .
+
+# Copy shared folder
+COPY ./shared ./shared
+
+# Copy service files
+COPY ./push_service/*.py ./
+COPY ./push_service/requirements.txt ./
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000
