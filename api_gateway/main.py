@@ -171,7 +171,7 @@ async def send_notification(
             "user_id": payload.user_id,
             "notification_type": payload.notification_type.value,
             "template_code": payload.template_code,
-            "variables": payload.variables.model_dump(),
+            "variables": payload.variables.model_dump(mode='json'),
             "priority": payload.priority,
             "metadata": payload.metadata,
             "timestamp": datetime.utcnow().isoformat()
