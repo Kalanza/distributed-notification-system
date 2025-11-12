@@ -21,17 +21,29 @@ class RabbitMQClient:
     def connect(self):
         """Establish connection to RabbitMQ"""
         try:
-            credentials = pika.PlainCredentials(
-                settings.RABBITMQ_USER,
-                settings.RABBITMQ_PASS
-            )
-            parameters = pika.ConnectionParameters(
-                host=self.host,
-                port=self.port,
-                credentials=credentials,
-                heartbeat=600,
-                blocked_connection_timeout=300
-            )
+            # Check if we have a CloudAMQP URL or connection details
+            import os
+            cloudamqp_url = os.getenv("CLOUDAMQP_URL") or os.getenv("RABBITMQ_URL")
+            
+            if cloudamqp_url:
+                # Use URL-based connection for CloudAMQP
+                parameters = pika.URLParameters(cloudamqp_url)
+                parameters.heartbeat = 600
+                parameters.blocked_connection_timeout = 300
+            else:
+                # Use traditional connection parameters
+                credentials = pika.PlainCredentials(
+                    settings.RABBITMQ_USER,
+                    settings.RABBITMQ_PASS
+                )
+                parameters = pika.ConnectionParameters(
+                    host=self.host,
+                    port=self.port,
+                    credentials=credentials,
+                    heartbeat=600,
+                    blocked_connection_timeout=300
+                )
+            
             self.connection = pika.BlockingConnection(parameters)
             self.channel = self.connection.channel()
             logger.info(f"Connected to RabbitMQ at {self.host}:{self.port}")
