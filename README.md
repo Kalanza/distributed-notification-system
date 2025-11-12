@@ -1,301 +1,141 @@
-# Distributed Notification System
+﻿# Distributed Notification System
 
-A scalable, fault-tolerant microservices-based notification system that sends emails and push notifications asynchronously through message queues.
+A scalable microservices system for sending email and push notifications asynchronously.
 
-## 🏗️ System Architecture
+## Features
 
-```
-┌─────────────┐
-│   Client    │
-└──────┬──────┘
-       │
-       v
-┌─────────────────────────────────────────────────────────────┐
-│                      API Gateway                             │
-│  - Request Validation  - Rate Limiting  - Status Tracking   │
-└────────┬────────────────────────────────────────────────────┘
-         │
-         v
-┌─────────────────────────────────────────────────────────────┐
-│                    RabbitMQ Exchange                         │
-│         (notifications.direct)                               │
-└───┬─────────────────────────────────────────────────┬───────┘
-    │                                                   │
-    v                                                   v
-┌───────────────┐                             ┌───────────────┐
-│ email.queue   │                             │  push.queue   │
-└───────┬───────┘                             └───────┬───────┘
-        │                                             │
-        v                                             v
-┌────────────────────┐                       ┌────────────────────┐
-│  Email Service     │                       │  Push Service      │
-│  - SMTP Sending    │                       │  - FCM Integration │
-│  - Template Render │                       │  - Token Validate  │
-│  - Retry Logic     │                       │  - Rich Notifs     │
-└────────┬───────────┘                       └────────┬───────────┘
-         │                                             │
-         └─────────────────┬───────────────────────────┘
-                           │
-                           v
-                  ┌────────────────┐
-                  │ failed.queue   │
-                  │ (Dead Letter)  │
-                  └────────────────┘
+-  **5 Microservices** - API Gateway, User, Template, Email, Push
+-  **Message Queue** - RabbitMQ for async processing
+-  **Database per Service** - PostgreSQL isolation
+-  **Redis Caching** - Fast user preferences & templates
+-  **Fault Tolerance** - Circuit breaker & retry logic
+-  **Email** - Gmail SMTP integration
+-  **Push** - OneSignal integration
 
-Supporting Services:
-┌─────────────┐  ┌──────────────────┐  ┌──────────┐
-│User Service │  │Template Service  │  │  Redis   │
-│- User Data  │  │- Templates       │  │- Caching │
-│- Preferences│  │- Rendering       │  │- Rate    │
-│- PostgreSQL │  │- Versioning      │  │  Limiting│
-└─────────────┘  └──────────────────┘  └──────────┘
-```
-
-## ✨ Features
-
-### Core Features
-- ✅ **Microservices Architecture** - Independent, scalable services
-- ✅ **Asynchronous Processing** - Message queue-based communication
-- ✅ **Multi-Channel Support** - Email and Push notifications
-- ✅ **Template Management** - Dynamic templates with variable substitution
-- ✅ **User Management** - User preferences and contact info
-- ✅ **Idempotency** - Prevent duplicate notifications
-- ✅ **Rate Limiting** - Protect against abuse
-
-### Resilience Features
-- ✅ **Circuit Breaker Pattern** - Prevent cascading failures
-- ✅ **Retry with Exponential Backoff** - Automatic retry logic
-- ✅ **Dead Letter Queue** - Handle permanently failed messages
-- ✅ **Health Checks** - Monitor service health
-- ✅ **Correlation IDs** - Distributed tracing
-- ✅ **Comprehensive Logging** - Track notification lifecycle
-
-### Performance Features
-- ✅ **Redis Caching** - Cache user preferences and templates
-- ✅ **Horizontal Scaling** - Scale services independently
-- ✅ **Connection Pooling** - Efficient database connections
-- ✅ **Persistent Messages** - Durable message queues
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Docker & Docker Compose
-- Python 3.11+
 - Git
 
-### Installation
+### Setup
 
-1. **Clone the repository**
 ```bash
+# Clone repository
 git clone https://github.com/Kalanza/distributed-notification-system.git
 cd distributed-notification-system
-```
 
-2. **Configure environment variables**
-```bash
-# Create .env file with your configuration
-# SMTP_USER=your-email@gmail.com
-# SMTP_PASSWORD=your-app-password
-# FCM_SERVER_KEY=your-fcm-server-key
-```
+# Configure credentials
+cp .env.example .env
+# Edit .env with your SMTP and OneSignal credentials
 
-3. **Start all services**
-```bash
+# Start services
 docker-compose up -d
-```
 
-4. **Verify services are running**
-```bash
-# Check all services
-docker-compose ps
-
-# Check API Gateway health
+# Verify
 curl http://localhost:8000/health
 ```
 
-## 📋 API Documentation
+## Usage
 
-### API Gateway Endpoints
+### Send Notification
 
-#### Send Notification
-```http
-POST /notifications/send
+```bash
+POST http://localhost:8000/notifications/send
 Content-Type: application/json
 
 {
   "user_id": 1,
   "channel": "email",
-  "template_id": "welcome_email",
+  "template_id": "welcome",
   "variables": {
-    "name": "John Doe",
-    "action_url": "https://example.com/verify"
-  },
-  "priority": "high"
+    "name": "John"
+  }
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "request_id": "uuid-here",
-    "status": "queued",
-    "channel": "email",
-    "correlation_id": "uuid-here",
-    "remaining_requests": 99
-  },
-  "error": null,
-  "message": "Notification queued successfully for email",
-  "meta": null
-}
+### API Documentation
+- **Swagger UI**: http://localhost:8000/docs
+- **RabbitMQ Dashboard**: http://localhost:15672 (guest/guest)
+
+## Architecture
+
+```
+Client  API Gateway  RabbitMQ  [Email Service, Push Service]
+                          
+                    [User Service, Template Service]
+                          
+                    PostgreSQL, Redis
 ```
 
-### User Service Endpoints
+## Services
 
-#### Create User
-```http
-POST /users
-Content-Type: application/json
+| Service | Port | Purpose |
+|---------|------|---------|
+| API Gateway | 8000 | Entry point, rate limiting |
+| User Service | 8003 | User management |
+| Template Service | 8004 | Template management |
+| Email Service | 8001 | Email processing |
+| Push Service | 8002 | Push notifications |
 
-{
-  "username": "johndoe",
-  "email": "john@example.com",
-  "password": "securepassword"
-}
-```
+## Configuration
 
-#### Update User Preferences
-```http
-PUT /users/{user_id}/preferences
-Content-Type: application/json
-
-{
-  "email_enabled": true,
-  "push_enabled": true,
-  "push_token": "fcm-token-here",
-  "language": "en"
-}
-```
-
-### Template Service Endpoints
-
-#### Create Template
-```http
-POST /templates
-Content-Type: application/json
-
-{
-  "template_id": "welcome_email",
-  "name": "Welcome Email",
-  "channel": "email",
-  "subject": "Welcome {{name}}!",
-  "body_text": "Hello {{name}}, welcome!",
-  "variables": ["name"]
-}
-```
-
-## 🔧 Configuration
-
-### Key Environment Variables
+Key environment variables in `.env`:
 
 ```bash
-# SMTP Configuration
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
+# Email
 SMTP_USER=your-email@gmail.com
 SMTP_PASSWORD=your-app-password
 
-# FCM Configuration
-FCM_SERVER_KEY=your-fcm-server-key
-
-# Circuit Breaker
-CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
-CIRCUIT_BREAKER_RECOVERY_TIMEOUT=60
-
-# Retry Configuration
-MAX_RETRY_ATTEMPTS=3
+# Push Notifications
+ONESIGNAL_APP_ID=your-app-id
+ONESIGNAL_REST_API_KEY=your-api-key
 
 # Rate Limiting
 RATE_LIMIT_PER_USER=100
-RATE_LIMIT_WINDOW=60
 ```
 
-## 🔄 Failure Handling
+## Tech Stack
 
-### Circuit Breaker
-- Opens after 5 consecutive failures
-- Stays open for 60 seconds
-- Prevents cascading failures
-
-### Retry Logic
-- 1st retry: 2 seconds
-- 2nd retry: 4 seconds
-- 3rd retry: 8 seconds
-- After 3 failures → Dead Letter Queue
-
-## 📈 Performance Targets
-
-- ✅ Handle 1,000+ notifications per minute
-- ✅ API Gateway response under 100ms
-- ✅ 99.5% delivery success rate
-- ✅ Horizontal scaling support
-
-## 🛠️ Tech Stack
-
-- **Languages**: Python 3.11+
-- **Frameworks**: FastAPI, Pydantic, SQLAlchemy
+- **Language**: Python 3.11+
+- **Framework**: FastAPI
 - **Message Queue**: RabbitMQ
-- **Databases**: PostgreSQL
-- **Caching**: Redis
-- **Containerization**: Docker
+- **Database**: PostgreSQL
+- **Cache**: Redis
+- **Deployment**: Docker Compose
 
-## 📊 Monitoring
+## Monitoring
 
-### Health Checks
-- API Gateway: http://localhost:8000/health
-- User Service: http://localhost:8003/health
-- Template Service: http://localhost:8004/health
-- Email Service: http://localhost:8001/health
-- Push Service: http://localhost:8002/health
+```bash
+# View logs
+docker-compose logs -f
 
-### RabbitMQ Management UI
-http://localhost:15672 (guest/guest)
+# Check service status
+docker-compose ps
 
-## 📝 Project Structure
-```
-distributed-notification-system/
-├── api_gateway/          # API Gateway service
-├── user_service/         # User management
-├── template_service/     # Template management
-├── email_service/        # Email processing
-├── push_service/         # Push notifications
-├── shared/               # Shared utilities
-│   ├── config/          # Configuration
-│   ├── schemas/         # Pydantic models
-│   └── utils/           # Circuit breaker, retry, etc.
-├── .github/workflows/    # CI/CD
-└── docker-compose.yml    # Docker config
+# Stop services
+docker-compose down
 ```
 
-## 📄 License
+## Project Structure
 
-MIT License - see [LICENSE](LICENSE)
+```
+ api_gateway/          # Entry point
+ user_service/         # User management
+ template_service/     # Templates
+ email_service/        # Email sender
+ push_service/         # Push sender
+ shared/               # Utilities
+    config/          # Settings
+    schemas/         # Data models
+    utils/           # Helpers
+ docker-compose.yml    # Orchestration
+```
 
-## 👥 Team
+## License
 
-Built as part of Stage 4 Backend Task
-
----
-
-**Built with ❤️ by the Notification System Team**
-
-## Development Status
-
-- ✅ Day 1: Basic microservices setup with Docker
-- ✅ Day 2: RabbitMQ integration for async messaging
-- 🚧 Day 3+: Database integration, user preferences, external APIs
+MIT License
 
 ## Author
 
-Kalanza - [GitHub](https://github.com/Kalanza)
+[Kalanza](https://github.com/Kalanza)
