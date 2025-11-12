@@ -12,12 +12,26 @@ class RedisClient:
     """Redis client for caching and rate limiting"""
     
     def __init__(self):
-        self.client = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT,
-            db=settings.REDIS_DB,
-            decode_responses=True
-        )
+        # Support both regular and SSL Redis connections (Heroku)
+        connection_kwargs = {
+            "host": settings.REDIS_HOST,
+            "port": settings.REDIS_PORT,
+            "db": settings.REDIS_DB,
+            "decode_responses": True,
+            "socket_connect_timeout": 5,
+            "socket_timeout": 5
+        }
+        
+        # Add password if available
+        if settings.REDIS_PASSWORD:
+            connection_kwargs["password"] = settings.REDIS_PASSWORD
+        
+        # Add SSL support for Heroku Redis
+        if settings.REDIS_SSL:
+            connection_kwargs["ssl"] = True
+            connection_kwargs["ssl_cert_reqs"] = None  # Don't verify SSL cert
+        
+        self.client = redis.Redis(**connection_kwargs)
     
     def get(self, key: str) -> Optional[Any]:
         """Get value from Redis"""
