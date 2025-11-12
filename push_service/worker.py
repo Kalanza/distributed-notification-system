@@ -17,8 +17,10 @@ from shared.config.settings import settings
 from shared.utils.logger import get_logger
 from shared.utils.rabbitmq_client import get_rabbitmq_client
 from shared.utils.redis_client import get_redis_client
+from shared.utils.onesignal_client import get_onesignal_client
 from shared.utils.circuit_breaker import circuit_breaker
 from shared.utils.retry import retry_with_backoff
+import asyncio
 
 # Initialize logger
 logger = get_logger("push_worker", settings.LOG_LEVEL)
@@ -26,6 +28,7 @@ logger = get_logger("push_worker", settings.LOG_LEVEL)
 # Initialize clients
 rabbitmq_client = get_rabbitmq_client()
 redis_client = get_redis_client()
+onesignal_client = get_onesignal_client()
 
 # Graceful shutdown flag
 shutdown_requested = False
@@ -40,18 +43,36 @@ def signal_handler(signum, frame):
 
 @circuit_breaker(failure_threshold=5, recovery_timeout=60, name="send_push_notification")
 @retry_with_backoff(max_attempts=3, backoff_base=2)
-def send_push_notification(device_token: str, title: str, message: str, data: dict = None):
-    """Send push notification via OneSignal (placeholder for now)"""
+def send_push_notification(player_ids: list, title: str, message: str, data: dict = None):
+    """Send push notification via OneSignal"""
     try:
-        # TODO: Implement OneSignal integration
-        logger.info(f"[MOCK] Sending push notification to {device_token[:10]}...")
-        logger.info(f"[MOCK] Title: {title}")
-        logger.info(f"[MOCK] Message: {message}")
-        logger.info(f"[MOCK] Data: {data}")
+        # Check if OneSignal is configured
+        if not settings.ONESIGNAL_APP_ID or not settings.ONESIGNAL_REST_API_KEY:
+            logger.warning("OneSignal not configured. Using mock mode.")
+            logger.info(f"[MOCK] Sending push to {len(player_ids)} device(s)...")
+            logger.info(f"[MOCK] Title: {title}")
+            logger.info(f"[MOCK] Message: {message}")
+            logger.info(f"[MOCK] Data: {data}")
+            return {"success": True, "mock": True}
         
-        # Simulate successful push
-        logger.info(f"Push notification sent successfully to {device_token[:10]}...")
-        return True
+        # Send via OneSignal
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                onesignal_client.send_notification(
+                    player_ids=player_ids,
+                    title=title,
+                    message=message,
+                    data=data or {},
+                    url=data.get("action_url") if data else None,
+                    priority=10
+                )
+            )
+            logger.info(f"Push notification sent via OneSignal. Recipients: {result.get('recipients', 0)}")
+            return result
+        finally:
+            loop.close()
         
     except Exception as e:
         logger.error(f"Push notification error: {str(e)}")
@@ -92,32 +113,39 @@ def process_push_notification(data: dict):
         
         if not user_data:
             logger.warning(f"User {user_id} not found in cache")
-            device_tokens = [variables.get('device_token', 'mock_device_token')]
+            # Use provided player_ids from variables if available
+            player_ids = variables.get('player_ids', [])
+            if not player_ids:
+                player_ids = [variables.get('player_id', 'mock_player_id')]
         else:
-            device_tokens = user_data.get('device_tokens', ['mock_device_token'])
+            # Get OneSignal player IDs from user data
+            player_ids = user_data.get('player_ids', [])
+            if not player_ids:
+                player_ids = ['mock_player_id']
         
         # Generate push content
         push_content = generate_push_content(template_code, variables)
         
         # Send to all user devices
-        for token in device_tokens:
-            send_push_notification(
-                device_token=token,
-                title=push_content['title'],
-                message=push_content['message'],
-                data=push_content.get('data')
-            )
+        result = send_push_notification(
+            player_ids=player_ids,
+            title=push_content['title'],
+            message=push_content['message'],
+            data=push_content.get('data')
+        )
         
         # Update status in Redis
         status_data = {
             "notification_id": notification_id,
             "status": "delivered",
             "timestamp": datetime.utcnow().isoformat(),
-            "error": None
+            "error": None,
+            "onesignal_id": result.get('id') if not result.get('mock') else None,
+            "recipients": result.get('recipients', len(player_ids))
         }
         redis_client.set(f"notification:status:{notification_id}", status_data, expire=86400)
         
-        logger.info(f"Push notification {notification_id} delivered successfully")
+        logger.info(f"Push notification {notification_id} delivered to {len(player_ids)} device(s)")
         
     except Exception as e:
         logger.error(f"Error processing push notification: {str(e)}")
