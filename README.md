@@ -14,11 +14,13 @@ A scalable microservices system for sending email and push notifications asynchr
 
 ## Quick Start
 
-### Prerequisites
+### Local Development
+
+#### Prerequisites
 - Docker & Docker Compose
 - Git
 
-### Setup
+#### Setup
 
 ```bash
 # Clone repository
@@ -35,6 +37,29 @@ docker-compose up -d
 # Verify
 curl http://localhost:8000/health
 ```
+
+### Heroku Deployment
+
+Deploy to Heroku with one command:
+
+```bash
+# Using the automated script (PowerShell)
+.\deploy-heroku.ps1 -AppName "your-app-name" `
+  -SmtpUser "your-email@gmail.com" `
+  -SmtpPassword "your-app-password" `
+  -SmtpFromEmail "noreply@yourdomain.com"
+
+# Or using bash script
+./deploy-heroku.sh your-app-name your-email@gmail.com app-password noreply@yourdomain.com
+```
+
+For detailed deployment instructions, see [HEROKU_DEPLOYMENT.md](HEROKU_DEPLOYMENT.md)
+
+**Quick Heroku Setup:**
+1. Install [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli)
+2. Login: `heroku login`
+3. Run deployment script above
+4. Access your app at: `https://your-app-name.herokuapp.com/docs`
 
 ## Usage
 

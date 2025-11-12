@@ -1,0 +1,9 @@
+build:
+  docker:
+    web: api_gateway/Dockerfile
+    email-worker: email_service/Dockerfile
+    push-worker: push_service/Dockerfile
+    user-service: user_service/Dockerfile
+    template-service: template_service/Dockerfile
+run:
+  web: uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir /app/api_gateway

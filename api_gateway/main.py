@@ -97,7 +97,6 @@ async def health_check():
 
 
 @app.post("/api/v1/notifications/", response_model=ApiResponse[dict])
-@circuit_breaker(failure_threshold=5, recovery_timeout=60, name="send_notification")
 async def send_notification(
     payload: NotificationPayload,
     token: Optional[str] = Depends(verify_token)

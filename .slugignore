@@ -1,0 +1,11 @@
+*.md
+tests/
+.git/
+.gitignore
+docker-compose.yml
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
