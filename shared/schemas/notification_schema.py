@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, Literal
 from datetime import datetime
 import uuid
@@ -13,12 +13,6 @@ class NotificationPayload(BaseModel):
     timestamp: Optional[str] = Field(default_factory=lambda: datetime.utcnow().isoformat(), description="Timestamp of the request")
     priority: Optional[Literal["high", "medium", "low"]] = Field(default="medium", description="Notification priority")
     correlation_id: Optional[str] = Field(default_factory=lambda: str(uuid.uuid4()), description="Correlation ID for tracking")
-    
-    @validator('channel')
-    def validate_channel(cls, v):
-        if v not in ["email", "push"]:
-            raise ValueError("Channel must be 'email' or 'push'")
-        return v
 
 
 class NotificationStatus(BaseModel):

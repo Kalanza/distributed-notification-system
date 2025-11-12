@@ -37,38 +37,36 @@ class TestCircuitBreaker:
     
     def test_circuit_breaker_success(self):
         """Test circuit breaker with successful calls"""
-        cb = CircuitBreaker(failure_threshold=3, timeout=1)
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=1)
         
-        @cb
         def successful_function():
             return "success"
         
-        result = successful_function()
+        result = cb.call(successful_function)
         assert result == "success"
-        assert cb.state == "closed"
+        assert cb.state.value == "closed"
     
     def test_circuit_breaker_opens_on_failures(self):
         """Test that circuit breaker opens after threshold failures"""
-        cb = CircuitBreaker(failure_threshold=2, timeout=1)
+        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=1)
         
-        @cb
         def failing_function():
             raise Exception("Test failure")
         
         # First failure
         with pytest.raises(Exception):
-            failing_function()
+            cb.call(failing_function)
         assert cb.failure_count == 1
         
         # Second failure should open circuit
         with pytest.raises(Exception):
-            failing_function()
-        assert cb.state == "open"
+            cb.call(failing_function)
+        assert cb.state.value == "open"
     
     def test_circuit_breaker_state_transitions(self):
         """Test circuit breaker state is initially closed"""
-        cb = CircuitBreaker(failure_threshold=3, timeout=1)
-        assert cb.state == "closed"
+        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=1)
+        assert cb.state.value == "closed"
         assert cb.failure_count == 0
 
 
@@ -79,7 +77,7 @@ class TestRetry:
         """Test that retry succeeds if first attempt works"""
         call_count = 0
         
-        @retry_with_backoff(max_retries=3)
+        @retry_with_backoff(max_attempts=3)
         def successful_function():
             nonlocal call_count
             call_count += 1
@@ -93,7 +91,7 @@ class TestRetry:
         """Test that retry eventually succeeds after failures"""
         call_count = 0
         
-        @retry_with_backoff(max_retries=3, delay=0.01)
+        @retry_with_backoff(max_attempts=3, backoff_factor=0)
         def eventually_successful():
             nonlocal call_count
             call_count += 1
@@ -109,7 +107,7 @@ class TestRetry:
         """Test that retry fails after max attempts"""
         call_count = 0
         
-        @retry_with_backoff(max_retries=2, delay=0.01)
+        @retry_with_backoff(max_attempts=2, backoff_factor=0)
         def always_failing():
             nonlocal call_count
             call_count += 1
@@ -117,5 +115,5 @@ class TestRetry:
         
         with pytest.raises(Exception) as exc_info:
             always_failing()
-        assert "Permanent failure" in str(exc_info.value)
-        assert call_count == 3  # initial + 2 retries
+        assert "Failed after 2 attempts" in str(exc_info.value)
+        assert call_count == 2

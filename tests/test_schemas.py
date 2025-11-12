@@ -45,7 +45,8 @@ class TestNotificationPayload:
                 channel="sms",  # invalid channel
                 template_id="test"
             )
-        assert "Channel must be 'email' or 'push'" in str(exc_info.value)
+        # Pydantic v2 uses literal_error type for Literal validation
+        assert "Input should be 'email' or 'push'" in str(exc_info.value)
     
     def test_missing_required_fields(self):
         """Test that missing required fields raises validation error"""
