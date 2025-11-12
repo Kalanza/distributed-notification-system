@@ -1,9 +1,16 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 import uuid
 from datetime import datetime
-from shared.schemas.notification_schema import NotificationPayload, NotificationStatus
+from shared.schemas.notification_schema import (
+    NotificationPayload,
+    NotificationStatusUpdate,
+    NotificationStatus,
+    NotificationType,
+    UserCreate,
+    UserResponse
+)
 from shared.schemas.response_schema import ApiResponse, create_success_response, create_error_response, create_paginated_response
 from shared.config.settings import settings
 from shared.utils.logger import get_logger
@@ -89,7 +96,7 @@ async def health_check():
     )
 
 
-@app.post("/notifications/send", response_model=ApiResponse[dict])
+@app.post("/api/v1/notifications/", response_model=ApiResponse[dict])
 @circuit_breaker(failure_threshold=5, recovery_timeout=60, name="send_notification")
 async def send_notification(
     payload: NotificationPayload,
@@ -98,24 +105,27 @@ async def send_notification(
     """
     Send a notification through the appropriate channel
     Supports email and push notifications with idempotency
-    """
-    correlation_id = payload.correlation_id
     
+    Request body:
+    - notification_type: Type of notification (email or push)
+    - user_id: User UUID
+    - template_code: Template code or path
+    - variables: User data for template (name, link, meta)
+    - request_id: Unique request ID (auto-generated if not provided)
+    - priority: Priority level 1-10 (lower is higher priority)
+    - metadata: Optional additional metadata
+    """
     try:
-        logger.log_notification_lifecycle(
-            stage="received",
-            request_id=payload.request_id,
-            correlation_id=correlation_id,
-            status="pending",
-            channel=payload.channel,
-            user_id=payload.user_id
+        logger.info(
+            f"Notification request received: {payload.request_id}",
+            correlation_id=payload.request_id
         )
         
         # Check idempotency - prevent duplicate notifications
         if redis_client.is_notification_processed(payload.request_id):
             logger.warning(
                 f"Duplicate notification request: {payload.request_id}",
-                correlation_id=correlation_id
+                correlation_id=payload.request_id
             )
             return create_success_response(
                 data={"request_id": payload.request_id, "status": "already_processed"},
@@ -124,7 +134,7 @@ async def send_notification(
         
         # Check rate limiting
         is_allowed, remaining = redis_client.check_rate_limit(
-            user_id=payload.user_id,
+            user_id=int(uuid.UUID(payload.user_id).int % (2**31)),  # Convert UUID to int for rate limiting
             limit=settings.RATE_LIMIT_PER_USER,
             window=settings.RATE_LIMIT_WINDOW
         )
@@ -132,109 +142,265 @@ async def send_notification(
         if not is_allowed:
             logger.warning(
                 f"Rate limit exceeded for user {payload.user_id}",
-                correlation_id=correlation_id
+                correlation_id=payload.request_id
             )
-            return create_error_response(
-                error="rate_limit_exceeded",
-                message=f"Rate limit exceeded. Try again later."
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Try again later."
             )
         
-        # Validate channel
-        if payload.channel not in ["email", "push"]:
-            return create_error_response(
-                error="invalid_channel",
-                message="Channel must be 'email' or 'push'"
-            )
+        # Create notification ID
+        notification_id = str(uuid.uuid4())
         
         # Store notification status
-        status = NotificationStatus(
-            request_id=payload.request_id,
-            user_id=payload.user_id,
-            channel=payload.channel,
-            status="queued",
-            created_at=datetime.utcnow().isoformat(),
-            updated_at=datetime.utcnow().isoformat(),
-            retry_count=0
+        status_update = NotificationStatusUpdate(
+            notification_id=notification_id,
+            status=NotificationStatus.pending,
+            timestamp=datetime.utcnow(),
+            error=None
         )
         redis_client.set(
-            f"notification:status:{payload.request_id}",
-            status.model_dump(),
+            f"notification:status:{notification_id}",
+            status_update.model_dump(mode='json'),
             expire=86400  # 24 hours
         )
         
+        # Prepare message for queue
+        queue_message = {
+            "notification_id": notification_id,
+            "request_id": payload.request_id,
+            "user_id": payload.user_id,
+            "notification_type": payload.notification_type.value,
+            "template_code": payload.template_code,
+            "variables": payload.variables.model_dump(),
+            "priority": payload.priority,
+            "metadata": payload.metadata,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
         # Publish to appropriate queue
         rabbitmq_client.publish_message(
-            routing_key=payload.channel,
-            message=payload.model_dump(),
+            routing_key=payload.notification_type.value,
+            message=queue_message,
             message_id=payload.request_id
         )
         
         # Mark as processed for idempotency
         redis_client.mark_notification_processed(payload.request_id)
         
-        logger.log_notification_lifecycle(
-            stage="queued",
-            request_id=payload.request_id,
-            correlation_id=correlation_id,
-            status="queued",
-            channel=payload.channel,
-            remaining_requests=remaining
+        logger.info(
+            f"Notification queued: {notification_id} via {payload.notification_type.value}",
+            correlation_id=payload.request_id
         )
         
         return create_success_response(
             data={
+                "notification_id": notification_id,
                 "request_id": payload.request_id,
-                "status": "queued",
-                "channel": payload.channel,
-                "correlation_id": correlation_id,
+                "status": "pending",
+                "notification_type": payload.notification_type.value,
                 "remaining_requests": remaining
             },
-            message=f"Notification queued successfully for {payload.channel}"
+            message=f"Notification queued successfully for {payload.notification_type.value}"
         )
         
     except CircuitBreakerOpenException as e:
-        logger.error(f"Circuit breaker open: {str(e)}", correlation_id=correlation_id)
+        logger.error(f"Circuit breaker open: {str(e)}", correlation_id=payload.request_id)
         raise HTTPException(status_code=503, detail="Service temporarily unavailable")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             f"Error sending notification: {str(e)}",
-            correlation_id=correlation_id
+            correlation_id=payload.request_id
         )
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/notifications/status/{request_id}", response_model=ApiResponse[NotificationStatus])
-async def get_notification_status(
-    request_id: str,
+@app.post("/api/v1/users/", response_model=ApiResponse[UserResponse])
+async def create_user(
+    user: UserCreate,
     token: Optional[str] = Depends(verify_token)
 ):
     """
-    Get the status of a notification by request ID
+    Create a new user
+    
+    Request body:
+    - name: User's full name
+    - email: User's email address
+    - push_token: Optional push notification token
+    - preferences: Notification preferences (email, push)
+    - password: User password (min 8 characters)
     """
     try:
-        status_data = redis_client.get(f"notification:status:{request_id}")
+        # Generate user ID
+        user_id = str(uuid.uuid4())
         
-        if not status_data:
-            return create_error_response(
-                error="not_found",
-                message="Notification not found"
+        # In production, hash password and store in database
+        # For now, store basic user data in Redis
+        user_data = {
+            "user_id": user_id,
+            "name": user.name,
+            "email": user.email,
+            "push_token": user.push_token,
+            "preferences": user.preferences.model_dump(),
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        # Store in Redis (in production, use PostgreSQL)
+        redis_client.set(
+            f"user:{user_id}",
+            user_data,
+            expire=None  # No expiration for user data
+        )
+        
+        # Also index by email for lookup
+        redis_client.set(
+            f"user:email:{user.email}",
+            {"user_id": user_id},
+            expire=None
+        )
+        
+        logger.info(f"User created: {user_id} ({user.email})")
+        
+        response_data = UserResponse(
+            user_id=user_id,
+            name=user.name,
+            email=user.email,
+            push_token=user.push_token,
+            preferences=user.preferences,
+            created_at=datetime.utcnow()
+        )
+        
+        return create_success_response(
+            data=response_data,
+            message="User created successfully"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating user: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/{notification_type}/status/", response_model=ApiResponse[dict])
+async def update_notification_status(
+    notification_type: NotificationType,
+    status_update: NotificationStatusUpdate,
+    token: Optional[str] = Depends(verify_token)
+):
+    """
+    Update the status of a notification
+    
+    Path parameter:
+    - notification_type: Type of notification (email or push)
+    
+    Request body:
+    - notification_id: Notification ID
+    - status: New status (delivered, pending, failed)
+    - timestamp: Optional timestamp of status update
+    - error: Optional error message if failed
+    """
+    try:
+        # Retrieve existing status
+        existing_data = redis_client.get(f"notification:status:{status_update.notification_id}")
+        
+        if not existing_data:
+            raise HTTPException(
+                status_code=404,
+                detail="Notification not found"
             )
         
-        status = NotificationStatus(**status_data)
+        # Update status
+        redis_client.set(
+            f"notification:status:{status_update.notification_id}",
+            status_update.model_dump(mode='json'),
+            expire=86400  # 24 hours
+        )
+        
+        logger.info(
+            f"Status updated for {status_update.notification_id}: {status_update.status.value}",
+            correlation_id=status_update.notification_id
+        )
+        
+        return create_success_response(
+            data={
+                "notification_id": status_update.notification_id,
+                "status": status_update.status.value,
+                "timestamp": status_update.timestamp.isoformat() if status_update.timestamp else datetime.utcnow().isoformat()
+            },
+            message="Notification status updated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating notification status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/notifications/{notification_id}/status", response_model=ApiResponse[NotificationStatusUpdate])
+async def get_notification_status(
+    notification_id: str = Path(..., description="Notification ID"),
+    token: Optional[str] = Depends(verify_token)
+):
+    """
+    Get the status of a notification by notification ID
+    """
+    try:
+        status_data = redis_client.get(f"notification:status:{notification_id}")
+        
+        if not status_data:
+            raise HTTPException(
+                status_code=404,
+                detail="Notification not found"
+            )
+        
+        status = NotificationStatusUpdate(**status_data)
         return create_success_response(
             data=status,
             message="Status retrieved successfully"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error retrieving notification status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/notifications/user/{user_id}", response_model=ApiResponse[List[NotificationStatus]])
+@app.get("/api/v1/users/{user_id}", response_model=ApiResponse[UserResponse])
+async def get_user(
+    user_id: str = Path(..., description="User UUID"),
+    token: Optional[str] = Depends(verify_token)
+):
+    """
+    Get user information by user ID
+    """
+    try:
+        user_data = redis_client.get(f"user:{user_id}")
+        
+        if not user_data:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found"
+            )
+        
+        user = UserResponse(**user_data)
+        return create_success_response(
+            data=user,
+            message="User retrieved successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving user: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/users/{user_id}/notifications", response_model=ApiResponse[List[NotificationStatusUpdate]])
 async def get_user_notifications(
-    user_id: int,
-    page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    user_id: str = Path(..., description="User UUID"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
     token: Optional[str] = Depends(verify_token)
 ):
     """

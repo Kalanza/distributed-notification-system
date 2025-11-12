@@ -2,8 +2,17 @@
 Tests for shared schemas
 """
 import pytest
-from pydantic import ValidationError
-from shared.schemas.notification_schema import NotificationPayload, EmailNotification, PushNotification
+from pydantic import ValidationError, HttpUrl
+from shared.schemas.notification_schema import (
+    NotificationPayload,
+    NotificationType,
+    NotificationStatus,
+    UserData,
+    UserCreate,
+    UserPreference,
+    EmailNotification,
+    PushNotification
+)
 
 
 class TestNotificationPayload:
@@ -11,47 +20,120 @@ class TestNotificationPayload:
     
     def test_valid_email_notification(self):
         """Test creating valid email notification payload"""
-        payload = NotificationPayload(
-            user_id=1,
-            channel="email",
-            template_id="welcome",
-            variables={"name": "John"}
+        user_data = UserData(
+            name="John Doe",
+            link="https://example.com",
+            meta={"key": "value"}
         )
-        assert payload.user_id == 1
-        assert payload.channel == "email"
-        assert payload.template_id == "welcome"
-        assert payload.priority == "medium"  # default
+        payload = NotificationPayload(
+            notification_type=NotificationType.email,
+            user_id="123e4567-e89b-12d3-a456-426614174000",
+            template_code="welcome",
+            variables=user_data,
+            priority=5
+        )
+        assert payload.notification_type == NotificationType.email
+        assert payload.user_id == "123e4567-e89b-12d3-a456-426614174000"
+        assert payload.template_code == "welcome"
+        assert payload.priority == 5
         assert payload.request_id is not None
-        assert payload.correlation_id is not None
     
     def test_valid_push_notification(self):
         """Test creating valid push notification payload"""
-        payload = NotificationPayload(
-            user_id=2,
-            channel="push",
-            template_id="alert",
-            variables={"message": "Test"},
-            priority="high"
+        user_data = UserData(
+            name="Jane Smith",
+            link="https://example.com/action"
         )
-        assert payload.user_id == 2
-        assert payload.channel == "push"
-        assert payload.priority == "high"
+        payload = NotificationPayload(
+            notification_type=NotificationType.push,
+            user_id="223e4567-e89b-12d3-a456-426614174001",
+            template_code="alert",
+            variables=user_data,
+            priority=1
+        )
+        assert payload.notification_type == NotificationType.push
+        assert payload.priority == 1
     
-    def test_invalid_channel(self):
-        """Test that invalid channel raises validation error"""
-        with pytest.raises(ValidationError) as exc_info:
+    def test_priority_validation(self):
+        """Test that priority is validated correctly"""
+        user_data = UserData(
+            name="Test User",
+            link="https://example.com"
+        )
+        with pytest.raises(ValidationError):
             NotificationPayload(
-                user_id=1,
-                channel="sms",  # invalid channel
-                template_id="test"
+                notification_type=NotificationType.email,
+                user_id="123e4567-e89b-12d3-a456-426614174000",
+                template_code="test",
+                variables=user_data,
+                priority=11  # invalid: > 10
             )
-        # Pydantic v2 uses literal_error type for Literal validation
-        assert "Input should be 'email' or 'push'" in str(exc_info.value)
     
     def test_missing_required_fields(self):
         """Test that missing required fields raises validation error"""
         with pytest.raises(ValidationError):
-            NotificationPayload(channel="email")  # missing user_id and template_id
+            NotificationPayload(notification_type=NotificationType.email)
+
+
+class TestUserData:
+    """Test UserData schema"""
+    
+    def test_valid_user_data(self):
+        """Test creating valid user data"""
+        data = UserData(
+            name="Test User",
+            link="https://example.com",
+            meta={"custom": "data"}
+        )
+        assert data.name == "Test User"
+        assert str(data.link) == "https://example.com/"
+        assert data.meta == {"custom": "data"}
+    
+    def test_user_data_without_meta(self):
+        """Test user data without optional meta field"""
+        data = UserData(
+            name="Test User",
+            link="https://example.com"
+        )
+        assert data.meta is None
+
+
+class TestUserCreate:
+    """Test UserCreate schema"""
+    
+    def test_valid_user_creation(self):
+        """Test creating valid user"""
+        preferences = UserPreference(email=True, push=True)
+        user = UserCreate(
+            name="John Doe",
+            email="john@example.com",
+            push_token="device-token-123",
+            preferences=preferences,
+            password="securepass123"
+        )
+        assert user.name == "John Doe"
+        assert user.email == "john@example.com"
+        assert user.preferences.email is True
+        assert user.preferences.push is True
+    
+    def test_default_preferences(self):
+        """Test user with default preferences"""
+        user = UserCreate(
+            name="Jane Doe",
+            email="jane@example.com",
+            password="password123"
+        )
+        assert user.preferences.email is True
+        assert user.preferences.push is True
+    
+    def test_invalid_email(self):
+        """Test that invalid email raises validation error"""
+        with pytest.raises(ValidationError):
+            UserCreate(
+                name="Test User",
+                email="invalid-email",
+                password="password123"
+            )
 
 
 class TestEmailNotification:
