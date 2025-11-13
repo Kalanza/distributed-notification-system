@@ -148,7 +148,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+      - name: Check deployment configuration
+        id: check_secrets
+        run: |
+          if [ -z "${{ secrets.SERVER_HOST }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Deployment skipped: SERVER_HOST secret not configured"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Deploy to server via SSH
+        if: steps.check_secrets.outputs.skip == 'false'
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -162,16 +173,7 @@ jobs:
             docker system prune -f
       
       - name: Health check
+        if: steps.check_secrets.outputs.skip == 'false'
         run: |
           sleep 30
           curl -f http://${{ secrets.SERVER_HOST }}:8000/health || exit 1
-      
-      - name: Notify deployment
-        if: always()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          text: 'Deployment ${{ job.status }}'
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
