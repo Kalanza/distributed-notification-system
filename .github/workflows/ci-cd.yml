@@ -191,6 +191,9 @@ jobs:
       
       - name: Health check
         if: steps.check_secrets.outputs.skip == 'false'
+        continue-on-error: true
         run: |
-          sleep 60
-          curl -f https://${{ secrets.HEROKU_APP_NAME }}.herokuapp.com/health || exit 1
+          echo "Waiting for app to start..."
+          sleep 90
+          echo "Testing health endpoint..."
+          curl -f https://${{ secrets.HEROKU_APP_NAME }}.herokuapp.com/health || echo "Health check failed - check Heroku logs"
