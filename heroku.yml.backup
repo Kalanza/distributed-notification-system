@@ -1,5 +1,0 @@
-build:
-  docker:
-    web: api_gateway/Dockerfile
-    email-worker: email_service/Dockerfile
-    push-worker: push_service/Dockerfile
