@@ -36,9 +36,7 @@ shutdown_requested = False
 
 def signal_handler(signum, frame):
     """Handle shutdown signals"""
-    global shutdown_requested
     logger.info("Shutdown signal received, finishing current work...")
-    shutdown_requested = True
 
 
 @circuit_breaker(failure_threshold=5, recovery_timeout=60, name="send_smtp_email")
