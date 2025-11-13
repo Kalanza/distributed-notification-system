@@ -181,6 +181,7 @@ def callback(ch, method, properties, body):
 
 def main():
     """Main worker loop"""
+    global shutdown_requested
     
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
