@@ -169,10 +169,14 @@ jobs:
         run: |
           git config --global user.email "$HEROKU_EMAIL"
           git config --global user.name "GitHub Actions"
-          echo "machine git.heroku.com login $HEROKU_EMAIL password $HEROKU_API_KEY" > ~/.netrc
-          echo "machine api.heroku.com login $HEROKU_EMAIL password $HEROKU_API_KEY" >> ~/.netrc
-          chmod 600 ~/.netrc
-          git remote add heroku https://git.heroku.com/$HEROKU_APP_NAME.git 2>/dev/null || git remote set-url heroku https://git.heroku.com/$HEROKU_APP_NAME.git
+          
+          # Ensure any existing heroku remote is removed so we can add a URL that includes the API key
+          git remote remove heroku 2>/dev/null || true
+          
+          # Use the API key in the remote URL to avoid interactive auth prompts (works with MFA)
+          git remote add heroku "https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP_NAME.git"
+          
+          # Push to Heroku
           git push heroku main --force
       
       - name: Health check
