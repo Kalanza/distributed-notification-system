@@ -147,8 +147,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       
       - name: Check deployment configuration
         id: check_secrets
@@ -160,24 +158,36 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
       
-      - name: Deploy to Heroku via Git
+      - name: Set up Docker Buildx
+        if: steps.check_secrets.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Heroku Container Registry
+        if: steps.check_secrets.outputs.skip == 'false'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          echo $HEROKU_API_KEY | docker login --username=_ --password-stdin registry.heroku.com
+      
+      - name: Build and Push Docker Image
+        if: steps.check_secrets.outputs.skip == 'false'
+        env:
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+        run: |
+          docker build -f api_gateway/Dockerfile -t registry.heroku.com/$HEROKU_APP_NAME/web .
+          docker push registry.heroku.com/$HEROKU_APP_NAME/web
+      
+      - name: Release to Heroku
         if: steps.check_secrets.outputs.skip == 'false'
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
           HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
-          HEROKU_EMAIL: ${{ secrets.HEROKU_EMAIL }}
         run: |
-          git config --global user.email "$HEROKU_EMAIL"
-          git config --global user.name "GitHub Actions"
+          # Install Heroku CLI
+          curl https://cli-assets.heroku.com/install.sh | sh
           
-          # Ensure any existing heroku remote is removed so we can add a URL that includes the API key
-          git remote remove heroku 2>/dev/null || true
-          
-          # Use the API key in the remote URL to avoid interactive auth prompts (works with MFA)
-          git remote add heroku "https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP_NAME.git"
-          
-          # Push to Heroku
-          git push heroku main --force
+          # Release the container
+          heroku container:release web -a $HEROKU_APP_NAME
       
       - name: Health check
         if: steps.check_secrets.outputs.skip == 'false'
